@@ -1,13 +1,13 @@
 """Armazenamento temporário das imagens processadas.
 
-Cada imagem gera três arquivos na pasta de storage:
+Cada imagem gera dois arquivos na pasta de storage:
 
 * ``<id>.<ext>``          -> imagem final em alta qualidade (download)
-* ``<id>.preview.jpg``    -> versão leve usada na pré-visualização
 * ``<id>.json``           -> metadados (nome original, tipo, dimensões...)
 
-Nada é persistido em banco de dados: o storage é descartável e limpo
-periodicamente conforme o TTL configurado.
+A aplicação não gera pré-visualizações: o resultado é servido apenas pelo
+endpoint de download individual. Nada é persistido em banco de dados: o
+storage é descartável e limpo periodicamente conforme o TTL configurado.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from typing import Any
 
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 METADATA_SUFFIX = ".json"
-PREVIEW_SUFFIX = ".preview.jpg"
 
 
 @dataclass(frozen=True)
@@ -57,7 +56,6 @@ class ImageStorage:
         self,
         *,
         final_image: bytes,
-        preview_image: bytes,
         original_name: str,
         media_type: str,
         extension: str,
@@ -87,15 +85,12 @@ class ImageStorage:
         # resultados incompletos em caso de falha no meio do caminho.
         final_path = self.root / f"{image_id}{extension}"
         final_tmp = self.root / f"{image_id}{extension}.tmp"
-        preview_tmp = self.root / f"{image_id}{PREVIEW_SUFFIX}.tmp"
         meta_tmp = self.root / f"{image_id}{METADATA_SUFFIX}.tmp"
 
         final_tmp.write_bytes(final_image)
-        preview_tmp.write_bytes(preview_image)
         meta_tmp.write_text(json.dumps(asdict(metadata), ensure_ascii=False), encoding="utf-8")
 
         final_tmp.replace(final_path)
-        preview_tmp.replace(self.preview_path(image_id))
         meta_tmp.replace(self.metadata_path(image_id))
         return metadata
 
@@ -119,9 +114,6 @@ class ImageStorage:
         extension = metadata.extension if metadata else ".jpg"
         return self.root / f"{image_id}{extension}"
 
-    def preview_path(self, image_id: str) -> Path:
-        return self.root / f"{image_id}{PREVIEW_SUFFIX}"
-
     def metadata_path(self, image_id: str) -> Path:
         return self.root / f"{image_id}{METADATA_SUFFIX}"
 
@@ -134,12 +126,6 @@ class ImageStorage:
         if not final.is_file():
             return None
         return final, metadata
-
-    def resolve_preview(self, image_id: str) -> Path | None:
-        if not is_valid_id(image_id):
-            return None
-        preview = self.preview_path(image_id)
-        return preview if preview.is_file() else None
 
     # ------------------------------------------------------------------
     # Exclusão / limpeza

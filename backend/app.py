@@ -178,6 +178,8 @@ def create_app(config: Settings | None = None) -> FastAPI:
 
         return {
             "max_upload_mb": config.max_upload_mb,
+            "max_batch_files": config.max_batch_files,
+            "max_batch_mb": round(config.max_batch_bytes / (1024 * 1024), 1),
             "accepted_formats": ["image/jpeg", "image/png"],
             "accepted_extensions": list(config.allowed_extensions),
             "logo": logo_info,
@@ -189,13 +191,21 @@ def create_app(config: Settings | None = None) -> FastAPI:
             "file_ttl_minutes": round(config.file_ttl_seconds / 60),
         }
 
-    @app.post("/api/process", status_code=201)
-    async def process_image(
+    @app.post("/api/process")
+    async def process_images(
         request: Request,
-        file: UploadFile = File(..., description="Foto do pet em JPG, JPEG ou PNG"),
+        files: list[UploadFile] = File(
+            ...,
+            description="Uma ou mais fotos do pet em JPG, JPEG ou PNG (campo repetido 'files')",
+        ),
         config: Settings = Depends(get_config),
         storage: ImageStorage = Depends(get_storage),
     ):
+        """Processa um lote de fotos e devolve um link de download por foto.
+
+        Os erros são individualizados: uma foto inválida não impede que as
+        demais sejam processadas.
+        """
         started = time.perf_counter()
 
         if not config.logo_path.is_file():
@@ -207,23 +217,22 @@ def create_app(config: Settings | None = None) -> FastAPI:
                 ),
             )
 
-        filename = (file.filename or "").strip() or "foto"
-        suffix = Path(filename).suffix.lower()
-        if suffix and suffix not in config.allowed_extensions:
+        if not files:
+            raise HTTPException(status_code=400, detail="Nenhuma foto foi enviada.")
+
+        if len(files) > config.max_batch_files:
             raise HTTPException(
-                status_code=415,
-                detail="Formato não suportado. Envie imagens JPG, JPEG ou PNG.",
+                status_code=413,
+                detail=f"Envie no máximo {config.max_batch_files} fotos por vez.",
             )
 
-        content_type = (file.content_type or "").lower()
-        if content_type and content_type not in ALLOWED_CONTENT_TYPES:
+        reported_sizes = [upload.size for upload in files if upload.size]
+        if reported_sizes and sum(reported_sizes) > config.max_batch_bytes:
+            limit_mb = config.max_batch_bytes / (1024 * 1024)
             raise HTTPException(
-                status_code=415,
-                detail="Formato não suportado. Envie imagens JPG, JPEG ou PNG.",
+                status_code=413,
+                detail=f"O lote passa de {limit_mb:.0f} MB. Envie menos fotos por vez.",
             )
-
-        data = await _read_limited(file, config.max_upload_bytes)
-        await file.close()
 
         try:
             logo = request.app.state.logo_cache.get()
@@ -231,72 +240,29 @@ def create_app(config: Settings | None = None) -> FastAPI:
             logger.error("Logo indisponível: %s", exc)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-        try:
-            image, source_format = load_uploaded_image(data, max_pixels=config.max_image_pixels)
-            result = await asyncio.to_thread(
-                apply_logo, image, logo, source_format=source_format, config=config
-            )
-        except InvalidImageError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # pragma: no cover - erro inesperado de Pillow
-            logger.exception("Falha ao processar imagem '%s'.", filename)
-            raise HTTPException(
-                status_code=500,
-                detail="Não foi possível processar a imagem. Tente novamente.",
-            ) from exc
+        items = [
+            await _process_one(upload, logo=logo, config=config, storage=storage)
+            for upload in files
+        ]
 
-        metadata = await asyncio.to_thread(
-            storage.save,
-            final_image=result.final_image,
-            preview_image=result.preview_image,
-            original_name=filename,
-            media_type=result.media_type,
-            extension=result.extension,
-            width=result.width,
-            height=result.height,
-            logo_width=result.logo_width,
-            logo_height=result.logo_height,
-        )
-
+        succeeded = sum(1 for item in items if item["ok"])
         elapsed_ms = round((time.perf_counter() - started) * 1000)
         logger.info(
-            "Imagem %s processada em %sms (%sx%s -> logo %sx%s)",
-            metadata.id,
+            "Lote de %s foto(s): %s ok, %s com erro em %sms",
+            len(items),
+            succeeded,
+            len(items) - succeeded,
             elapsed_ms,
-            metadata.width,
-            metadata.height,
-            metadata.logo_width,
-            metadata.logo_height,
         )
 
         return {
-            "id": metadata.id,
-            "original_name": metadata.original_name,
-            "download_name": metadata.download_name,
-            "media_type": metadata.media_type,
-            "width": metadata.width,
-            "height": metadata.height,
-            "logo_width": metadata.logo_width,
-            "logo_height": metadata.logo_height,
-            "preview_url": f"/api/images/{metadata.id}/preview",
-            "download_url": f"/api/images/{metadata.id}/download",
+            "total": len(items),
+            "succeeded": succeeded,
+            "failed": len(items) - succeeded,
             "expires_in_minutes": round(config.file_ttl_seconds / 60),
             "processing_ms": elapsed_ms,
+            "items": items,
         }
-
-    @app.get("/api/images/{image_id}/preview", name="preview_image")
-    async def preview_image(
-        image_id: str,
-        storage: ImageStorage = Depends(get_storage),
-    ):
-        path = storage.resolve_preview(image_id)
-        if path is None:
-            raise HTTPException(status_code=404, detail="Pré-visualização expirada ou inexistente.")
-        return FileResponse(
-            path,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=3600"},
-        )
 
     @app.get("/api/images/{image_id}/download", name="download_image")
     async def download_image(
@@ -324,6 +290,92 @@ def create_app(config: Settings | None = None) -> FastAPI:
         return Response(status_code=204)
 
     return app
+
+
+async def _process_one(
+    upload: UploadFile,
+    *,
+    logo: Image.Image,
+    config: Settings,
+    storage: ImageStorage,
+) -> dict[str, object]:
+    """Processa uma foto do lote e devolve o resultado individual."""
+    filename = (upload.filename or "").strip() or "foto"
+    started = time.perf_counter()
+
+    try:
+        suffix = Path(filename).suffix.lower()
+        if suffix and suffix not in config.allowed_extensions:
+            raise HTTPException(
+                status_code=415,
+                detail="Formato não suportado. Envie imagens JPG, JPEG ou PNG.",
+            )
+
+        content_type = (upload.content_type or "").lower()
+        if content_type and content_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(
+                status_code=415,
+                detail="Formato não suportado. Envie imagens JPG, JPEG ou PNG.",
+            )
+
+        data = await _read_limited(upload, config.max_upload_bytes)
+
+        try:
+            image, source_format = load_uploaded_image(data, max_pixels=config.max_image_pixels)
+            result = await asyncio.to_thread(
+                apply_logo, image, logo, source_format=source_format, config=config
+            )
+        except InvalidImageError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        metadata = await asyncio.to_thread(
+            storage.save,
+            final_image=result.final_image,
+            original_name=filename,
+            media_type=result.media_type,
+            extension=result.extension,
+            width=result.width,
+            height=result.height,
+            logo_width=result.logo_width,
+            logo_height=result.logo_height,
+        )
+
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        logger.info(
+            "Imagem %s processada em %sms (%sx%s -> logo %sx%s)",
+            metadata.id,
+            elapsed_ms,
+            metadata.width,
+            metadata.height,
+            metadata.logo_width,
+            metadata.logo_height,
+        )
+
+        return {
+            "ok": True,
+            "id": metadata.id,
+            "original_name": metadata.original_name,
+            "download_name": metadata.download_name,
+            "media_type": metadata.media_type,
+            "width": metadata.width,
+            "height": metadata.height,
+            "logo_width": metadata.logo_width,
+            "logo_height": metadata.logo_height,
+            "download_url": f"/api/images/{metadata.id}/download",
+            "processing_ms": elapsed_ms,
+        }
+    except HTTPException as exc:
+        logger.warning("Foto '%s' recusada: %s", filename, exc.detail)
+        return {"ok": False, "original_name": filename, "error": str(exc.detail)}
+    except Exception:
+        logger.exception("Falha ao processar a foto '%s'.", filename)
+        return {
+            "ok": False,
+            "original_name": filename,
+            "error": "Não foi possível processar esta imagem. Tente novamente.",
+        }
+    finally:
+        await upload.close()
 
 
 async def _read_limited(upload: UploadFile, limit: int) -> bytes:

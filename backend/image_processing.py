@@ -29,22 +29,12 @@ class ProcessResult:
     """Resultado do processamento de uma foto."""
 
     final_image: bytes
-    preview_image: bytes
     media_type: str
     extension: str
     width: int
     height: int
     logo_width: int
     logo_height: int
-
-
-def _flatten_on_white(image: Image.Image) -> Image.Image:
-    background = Image.new("RGB", image.size, (255, 255, 255))
-    if image.mode == "RGBA":
-        background.paste(image, mask=image.getchannel("A"))
-    else:
-        background.paste(image.convert("RGB"))
-    return background
 
 
 class LogoCache:
@@ -125,9 +115,10 @@ def load_uploaded_image(data: bytes, *, max_pixels: int) -> tuple[Image.Image, s
 def _scale_alpha(logo: Image.Image, opacity: float) -> Image.Image:
     if opacity >= 1.0:
         return logo
-    alpha = logo.getchannel("A").point(lambda value: int(value * max(0.0, opacity)))
-    logo.putalpha(alpha)
-    return logo
+    scaled = logo.copy()
+    alpha = scaled.getchannel("A").point(lambda value: int(value * max(0.0, opacity)))
+    scaled.putalpha(alpha)
+    return scaled
 
 
 def _resize_logo(logo: Image.Image, target_width: int, max_height: int) -> Image.Image:
@@ -180,36 +171,20 @@ def apply_logo(
         base = image.convert("RGBA")
         base.alpha_composite(resized_logo, dest=position)
         final_image = base
-        final_rgb = _flatten_on_white(base)
     else:
-        final_rgb = image if image.mode == "RGB" else image.convert("RGB")
-        final_rgb.paste(resized_logo, position, resized_logo.getchannel("A"))
-        final_image = final_rgb
+        final_image = image if image.mode == "RGB" else image.convert("RGB")
+        final_image.paste(resized_logo, position, resized_logo.getchannel("A"))
 
     out = io.BytesIO()
     if is_png:
         final_image.save(out, format="PNG", compress_level=config.png_compress_level)
         extension, media_type = ".png", "image/png"
     else:
-        final_rgb.save(out, format="JPEG", quality=config.jpeg_quality, progressive=True)
+        final_image.save(out, format="JPEG", quality=config.jpeg_quality, progressive=True)
         extension, media_type = ".jpg", "image/jpeg"
-
-    # Redimensiona direto para a prévia (sem copiar a imagem inteira).
-    preview = final_rgb
-    longest_side = max(final_rgb.size)
-    if longest_side > config.preview_max_size:
-        scale = config.preview_max_size / longest_side
-        preview = final_rgb.resize(
-            (max(1, round(width * scale)), max(1, round(height * scale))),
-            Image.Resampling.LANCZOS,
-        )
-
-    preview_out = io.BytesIO()
-    preview.save(preview_out, format="JPEG", quality=config.preview_quality, progressive=True)
 
     return ProcessResult(
         final_image=out.getvalue(),
-        preview_image=preview_out.getvalue(),
         media_type=media_type,
         extension=extension,
         width=width,

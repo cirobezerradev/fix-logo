@@ -1,46 +1,53 @@
 /* ------------------------------------------------------------------
    FixLogo · lógica do frontend
+
+   Fluxo: o usuário envia quantas fotos quiser (em lote ou em envios
+   sucessivos). O backend devolve um link de download individual para
+   cada foto — não há pré-visualização.
    ------------------------------------------------------------------ */
 (() => {
   'use strict';
 
   const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png']);
   const DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
-  const REQUEST_TIMEOUT_MS = 45_000;
+  const MAX_CHUNK = 10;
+  const REQUEST_TIMEOUT_MS = 180_000;
+
+  const ICONS = {
+    image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m4 17 5-5 4.5 4.5L16.5 13l3.5 3.5"/></svg>',
+    alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5"/><path d="M12 16.5h.01"/></svg>',
+    download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/></svg>',
+    share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>',
+  };
 
   const els = {
     apiStatus: document.getElementById('apiStatus'),
     apiDot: document.querySelector('[data-status-dot]'),
     apiText: document.querySelector('[data-status-text]'),
     logoWarning: document.getElementById('logoWarning'),
-    uploadCard: document.getElementById('uploadCard'),
     dropzone: document.getElementById('dropzone'),
     fileInput: document.getElementById('fileInput'),
     maxSizeLabel: document.getElementById('maxSizeLabel'),
-    processingCard: document.getElementById('processingCard'),
-    processingStep: document.getElementById('processingStep'),
-    processingFileName: document.getElementById('processingFileName'),
-    resultCard: document.getElementById('resultCard'),
-    resultMeta: document.getElementById('resultMeta'),
-    resultExpiry: document.getElementById('resultExpiry'),
-    compare: document.getElementById('compare'),
-    imgBefore: document.getElementById('imgBefore'),
-    imgAfter: document.getElementById('imgAfter'),
-    compareRange: document.getElementById('compareRange'),
-    downloadBtn: document.getElementById('downloadBtn'),
-    downloadLabel: document.getElementById('downloadLabel'),
-    resetBtn: document.getElementById('resetBtn'),
+    progressCard: document.getElementById('progressCard'),
+    progressText: document.getElementById('progressText'),
+    progressBar: document.getElementById('progressBar'),
+    progressFill: document.getElementById('progressFill'),
+    resultsCard: document.getElementById('resultsCard'),
+    resultsSummary: document.getElementById('resultsSummary'),
+    resultsList: document.getElementById('resultsList'),
+    resultsNote: document.getElementById('resultsNote'),
+    addMoreBtn: document.getElementById('addMoreBtn'),
     toast: document.getElementById('toast'),
   };
 
   const state = {
-    file: null,
-    beforeUrl: null,
-    afterUrl: null,
     maxBytes: DEFAULT_MAX_BYTES,
+    maxBatchFiles: 20,
+    maxBatchBytes: 90 * 1024 * 1024,
     ttlMinutes: 60,
-    busy: false,
-    stepTimer: null,
+    chain: Promise.resolve(),
+    results: [],
+    canShare: false,
   };
 
   /* ------------------------------------------------------------------
@@ -49,8 +56,8 @@
   init();
 
   function init() {
+    state.canShare = detectFileShare();
     bindEvents();
-    updateCompare(50);
     loadConfig();
     checkHealth();
   }
@@ -68,6 +75,8 @@
       if (els.fileInput.files && els.fileInput.files.length) {
         handleFiles(els.fileInput.files);
       }
+      // Permite selecionar o mesmo arquivo novamente depois.
+      els.fileInput.value = '';
     });
 
     ['dragenter', 'dragover'].forEach((type) => {
@@ -94,24 +103,27 @@
       }
     });
 
-    // Evita que o navegador abra a imagem fora da área de upload.
+    // Evita que o navegador abra imagens fora da área de upload.
     document.addEventListener('dragover', (event) => event.preventDefault());
     document.addEventListener('drop', (event) => event.preventDefault());
 
     document.addEventListener('paste', (event) => {
       const items = event.clipboardData ? event.clipboardData.items : null;
       if (!items) return;
+      const pasted = [];
       for (const item of items) {
         if (item.kind === 'file' && ACCEPTED_TYPES.has(item.type)) {
-          event.preventDefault();
-          handleFiles([item.getAsFile()]);
-          break;
+          const file = item.getAsFile();
+          if (file) pasted.push(file);
         }
+      }
+      if (pasted.length) {
+        event.preventDefault();
+        handleFiles(pasted);
       }
     });
 
-    els.compareRange.addEventListener('input', (event) => updateCompare(event.target.value));
-    els.resetBtn.addEventListener('click', reset);
+    els.addMoreBtn.addEventListener('click', () => els.fileInput.click());
   }
 
   /* ------------------------------------------------------------------
@@ -127,8 +139,15 @@
         state.maxBytes = Math.round(config.max_upload_mb * 1024 * 1024);
         els.maxSizeLabel.textContent = `${config.max_upload_mb} MB`;
       }
+      if (config.max_batch_files) {
+        state.maxBatchFiles = config.max_batch_files;
+      }
+      if (config.max_batch_mb) {
+        state.maxBatchBytes = Math.round(config.max_batch_mb * 1024 * 1024);
+      }
       if (config.file_ttl_minutes) {
         state.ttlMinutes = config.file_ttl_minutes;
+        updateResultsSummary();
       }
       if (config.logo && config.logo.available === false) {
         els.logoWarning.classList.remove('hidden');
@@ -169,47 +188,127 @@
   }
 
   /* ------------------------------------------------------------------
-     Fluxo: seleção -> processamento -> resultado
+     Envio em lote
      ------------------------------------------------------------------ */
   function handleFiles(fileList) {
-    const file = fileList && fileList[0];
-    if (!file || state.busy) return;
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
 
-    const typeOk = ACCEPTED_TYPES.has(file.type) || /\.(jpe?g|png)$/i.test(file.name);
-    if (!typeOk) {
-      showToast('Formato não suportado. Envie imagens JPG, JPEG ou PNG.', 'error');
-      return;
-    }
-    if (file.size === 0) {
-      showToast('O arquivo selecionado está vazio.', 'error');
-      return;
-    }
-    if (file.size > state.maxBytes) {
-      showToast(
-        `Arquivo muito grande (${formatBytes(file.size)}). O limite é ${formatBytes(state.maxBytes)}.`,
-        'error'
-      );
-      return;
+    const accepted = [];
+    for (const file of files) {
+      const typeOk = ACCEPTED_TYPES.has(file.type) || /\.(jpe?g|png)$/i.test(file.name);
+      if (!typeOk) {
+        addResult({
+          ok: false,
+          original_name: file.name,
+          error: 'Formato não suportado. Envie imagens JPG, JPEG ou PNG.',
+        });
+        continue;
+      }
+      if (file.size === 0) {
+        addResult({ ok: false, original_name: file.name, error: 'O arquivo selecionado está vazio.' });
+        continue;
+      }
+      if (file.size > state.maxBytes) {
+        addResult({
+          ok: false,
+          original_name: file.name,
+          error: `Arquivo muito grande (${formatBytes(file.size)}). O limite é ${formatBytes(state.maxBytes)} por foto.`,
+        });
+        continue;
+      }
+      accepted.push(file);
     }
 
-    processFile(file);
+    if (!accepted.length) return;
+
+    // Enfileira para não sobrepor envios feitos em sequência.
+    state.chain = state.chain.then(() => processFiles(accepted));
   }
 
-  async function processFile(file) {
-    state.busy = true;
-    state.file = file;
-    clearObjectUrls();
+  async function processFiles(files) {
+    const firstBatch = state.results.length === 0;
+    const chunks = buildChunks(files);
 
-    setPanel('processing');
-    els.processingFileName.textContent = `${file.name} · ${formatBytes(file.size)}`;
-    startStepAnimation();
+    let done = 0;
+    let succeeded = 0;
+    let failed = 0;
 
-    // Pré-visualização local do original para o comparador.
-    state.beforeUrl = URL.createObjectURL(file);
-    els.imgBefore.src = state.beforeUrl;
+    showProgress(files.length);
 
+    try {
+      for (const chunk of chunks) {
+        try {
+          const payload = await sendChunk(chunk);
+          if (payload.expires_in_minutes) state.ttlMinutes = payload.expires_in_minutes;
+
+          for (const item of payload.items || []) {
+            addResult(item);
+            if (item.ok) succeeded += 1;
+            else failed += 1;
+          }
+        } catch (error) {
+          const message = describeRequestError(error);
+          for (const file of chunk) {
+            addResult({ ok: false, original_name: file.name, error: message });
+            failed += 1;
+          }
+          showToast(message, 'error');
+        }
+
+        done += chunk.length;
+        updateProgress(done, files.length);
+      }
+
+      if (succeeded && !failed) {
+        showToast(`${succeeded} foto${succeeded === 1 ? '' : 's'} pronta${succeeded === 1 ? '' : 's'} para download.`, 'success');
+      } else if (!succeeded) {
+        showToast('Nenhuma foto pôde ser processada.', 'error');
+      } else {
+        showToast(`${succeeded} foto(s) prontas e ${failed} com erro.`, 'info');
+      }
+    } finally {
+      hideProgress();
+      updateResultsSummary();
+
+      if (firstBatch && state.results.length) {
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        els.resultsCard.scrollIntoView({
+          behavior: reduceMotion ? 'auto' : 'smooth',
+          block: 'start',
+        });
+      }
+    }
+  }
+
+  /** Divide o lote em requisições que respeitam o limite de arquivos e de bytes. */
+  function buildChunks(files) {
+    const maxFiles = Math.max(1, Math.min(MAX_CHUNK, state.maxBatchFiles || MAX_CHUNK));
+    const maxBytes = state.maxBatchBytes || Number.POSITIVE_INFINITY;
+    const chunks = [];
+    let current = [];
+    let currentBytes = 0;
+
+    for (const file of files) {
+      const exceedsCount = current.length >= maxFiles;
+      const exceedsBytes = current.length > 0 && currentBytes + file.size > maxBytes;
+      if (exceedsCount || exceedsBytes) {
+        chunks.push(current);
+        current = [];
+        currentBytes = 0;
+      }
+      current.push(file);
+      currentBytes += file.size;
+    }
+    if (current.length) chunks.push(current);
+    return chunks;
+  }
+
+  async function sendChunk(chunk) {
     const formData = new FormData();
-    formData.append('file', file, file.name);
+    for (const file of chunk) {
+      formData.append('files', file, file.name);
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -221,133 +320,235 @@
         signal: controller.signal,
         headers: { Accept: 'application/json' },
       });
-
       const payload = await readJson(response);
       if (!response.ok) {
-        throw new Error(payload.detail || 'Não foi possível processar a imagem.');
+        throw new Error(payload.detail || 'Não foi possível processar as fotos.');
       }
-
-      await showResult(payload, file);
-      showToast('Imagem pronta! Faça o download e publique.', 'success');
-    } catch (error) {
-      const message =
-        error.name === 'AbortError'
-          ? 'O processamento demorou demais. Tente novamente com uma foto menor.'
-          : error instanceof TypeError
-            ? 'Não foi possível conectar ao servidor. Verifique se ele está em execução.'
-            : error.message || 'Erro inesperado ao processar a imagem.';
-      showToast(message, 'error');
-      reset({ keepToast: true });
+      return payload;
     } finally {
       clearTimeout(timeoutId);
-      stopStepAnimation();
-      state.busy = false;
     }
   }
 
-  async function showResult(payload, file) {
-    state.afterUrl = payload.preview_url;
-    els.imgAfter.src = payload.preview_url;
-    els.imgAfter.alt = `Foto ${file.name} com a logomarca do petshop`;
-
-    await Promise.allSettled([els.imgAfter.decode(), els.imgBefore.decode()]);
-    fitCompareAspect();
-
-    const dimensions =
-      payload.width && payload.height ? `${payload.width} × ${payload.height} px` : 'Foto processada';
-    const elapsed = payload.processing_ms ? ` · ${formatDuration(payload.processing_ms)}` : '';
-    const logoSize = payload.logo_width ? ` · logo ${payload.logo_width} px de largura` : '';
-    els.resultMeta.textContent = `${dimensions}${logoSize}${elapsed}`;
-
-    els.downloadBtn.href = payload.download_url;
-    els.downloadBtn.setAttribute('download', payload.download_name || 'foto-logo.jpg');
-    els.downloadLabel.textContent = payload.download_name
-      ? `Baixar ${payload.download_name}`
-      : 'Baixar imagem';
-
-    const ttl = payload.expires_in_minutes || state.ttlMinutes;
-    els.resultExpiry.textContent = `Link de download válido por ${ttl} minuto${ttl === 1 ? '' : 's'}.`;
-
-    setPanel('result');
-    updateCompare(50);
-    scrollToResults();
-  }
-
-  function fitCompareAspect() {
-    const img = els.imgAfter;
-    if (img.naturalWidth && img.naturalHeight) {
-      els.compare.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+  function describeRequestError(error) {
+    if (error.name === 'AbortError') {
+      return 'O envio demorou demais. Tente novamente com menos fotos por vez.';
     }
-  }
-
-  function scrollToResults() {
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    els.resultCard.scrollIntoView({
-      behavior: reduceMotion ? 'auto' : 'smooth',
-      block: 'center',
-    });
-  }
-
-  function reset() {
-    clearObjectUrls();
-    els.fileInput.value = '';
-    els.imgBefore.removeAttribute('src');
-    els.imgAfter.removeAttribute('src');
-    els.compare.style.aspectRatio = '4 / 3';
-    updateCompare(50);
-    setPanel('upload');
-    els.dropzone.focus({ preventScroll: true });
-  }
-
-  function clearObjectUrls() {
-    if (state.beforeUrl) {
-      URL.revokeObjectURL(state.beforeUrl);
-      state.beforeUrl = null;
+    if (error instanceof TypeError) {
+      return 'Não foi possível conectar ao servidor. Verifique se ele está em execução.';
     }
-    state.afterUrl = null;
-  }
-
-  function setPanel(name) {
-    els.uploadCard.hidden = name !== 'upload';
-    els.processingCard.hidden = name !== 'processing';
-    els.resultCard.hidden = name !== 'result';
+    return error.message || 'Erro inesperado ao processar as fotos.';
   }
 
   /* ------------------------------------------------------------------
-     Comparador antes/depois
+     Lista de resultados
      ------------------------------------------------------------------ */
-  function updateCompare(value) {
-    const position = Math.max(0, Math.min(100, Number(value) || 0));
-    els.compare.style.setProperty('--position', `${position}%`);
-    els.compareRange.value = String(position);
-    els.compareRange.setAttribute('aria-valuetext', `${position}% da foto com logomarca visível`);
+  function addResult(item) {
+    state.results.push(item);
+    els.resultsCard.hidden = false;
+
+    const ok = Boolean(item.ok);
+    const row = document.createElement('li');
+    row.className = `result-row flex flex-wrap items-center gap-3 rounded-2xl border px-3 py-3 sm:px-4 ${
+      ok ? 'border-slate-200 bg-white' : 'border-red-200 bg-red-50/70'
+    }`;
+
+    const icon = document.createElement('span');
+    icon.className = `grid h-9 w-9 flex-none place-items-center rounded-xl ${
+      ok ? 'bg-brand-50 text-brand-600' : 'bg-red-100 text-red-600'
+    }`;
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = ok ? ICONS.image : ICONS.alert;
+
+    const info = document.createElement('div');
+    info.className = 'min-w-0 flex-1';
+
+    const name = document.createElement('p');
+    name.className = `truncate text-sm font-medium ${ok ? 'text-slate-900' : 'text-red-900'}`;
+    name.textContent = item.original_name || 'foto';
+    name.title = item.original_name || 'foto';
+
+    const detail = document.createElement('p');
+    detail.className = `mt-0.5 text-xs ${ok ? 'text-slate-500' : 'text-red-700'}`;
+    detail.textContent = ok
+      ? describeSuccess(item)
+      : item.error || 'Não foi possível processar esta foto.';
+
+    info.append(name, detail);
+    row.append(icon, info);
+
+    if (ok && item.download_url) {
+      const primaryClass =
+        'inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand-600 to-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:from-brand-700 hover:to-emerald-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-200 disabled:cursor-wait disabled:opacity-70';
+      const secondaryClass =
+        'inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-slate-200';
+
+      const actions = document.createElement('div');
+      actions.className = 'flex w-full items-center justify-end gap-2 sm:w-auto';
+
+      const link = document.createElement('a');
+      link.href = item.download_url;
+      link.setAttribute('download', item.download_name || '');
+      link.setAttribute('aria-label', `Baixar ${item.download_name || item.original_name || 'foto'}`);
+      link.className = state.canShare ? secondaryClass : primaryClass;
+      link.innerHTML = `${ICONS.download}<span>Baixar</span>`;
+
+      if (state.canShare) {
+        const shareButton = document.createElement('button');
+        shareButton.type = 'button';
+        shareButton.className = primaryClass;
+        shareButton.setAttribute(
+          'aria-label',
+          `Compartilhar ${item.original_name || 'foto'} no Instagram ou em outro aplicativo`
+        );
+        shareButton.innerHTML = `${ICONS.share}<span>Compartilhar</span>`;
+        // Adianta o download da imagem no toque, aumentando a chance de o
+        // navegador aceitar abrir o menu nativo logo no clique.
+        shareButton.addEventListener('pointerdown', () => prefetchShareFile(item));
+        shareButton.addEventListener('focus', () => prefetchShareFile(item));
+        shareButton.addEventListener('click', () => shareItem(item, shareButton));
+        actions.append(shareButton);
+      }
+
+      actions.append(link);
+      row.append(actions);
+    }
+
+    els.resultsList.appendChild(row);
+    updateResultsSummary();
+  }
+
+  /**
+   * Abre o menu nativo de compartilhamento (Web Share API nível 2) com a
+   * imagem processada. No celular, o usuário escolhe o Instagram, escreve a
+   * legenda no app e publica. A legenda não pode ser preenchida pelo site.
+   */
+  async function shareItem(item, button) {
+    if (!state.canShare) {
+      window.location.href = item.download_url;
+      return;
+    }
+
+    const label = button.querySelector('span');
+    const originalLabel = label ? label.textContent : '';
+    button.disabled = true;
+    if (label) label.textContent = 'Abrindo…';
+
+    try {
+      const file = await getShareFile(item);
+
+      if (!navigator.canShare({ files: [file] })) {
+        throw new Error('Compartilhamento de arquivos não suportado.');
+      }
+
+      await navigator.share({ files: [file], title: file.name });
+    } catch (error) {
+      // AbortError = o usuário fechou o menu sem compartilhar.
+      if (!error || error.name !== 'AbortError') {
+        showToast('Não foi possível abrir o compartilhamento. Use o botão Baixar.', 'error');
+      }
+    } finally {
+      button.disabled = false;
+      if (label) label.textContent = originalLabel || 'Compartilhar';
+    }
+  }
+
+  const shareFileCache = new WeakMap();
+
+  function getShareFile(item) {
+    let promise = shareFileCache.get(item);
+    if (promise) return promise;
+
+    promise = (async () => {
+      const response = await fetch(item.download_url);
+      if (!response.ok) throw new Error('Não foi possível carregar a imagem.');
+      const blob = await response.blob();
+      const filename = item.download_name || 'foto-logo.jpg';
+      return new File([blob], filename, {
+        type: item.media_type || blob.type || 'image/jpeg',
+      });
+    })();
+
+    shareFileCache.set(item, promise);
+    promise.catch(() => shareFileCache.delete(item));
+    return promise;
+  }
+
+  function prefetchShareFile(item) {
+    if (!state.canShare || !item || !item.download_url) return;
+    getShareFile(item).catch(() => {});
+  }
+
+  function detectFileShare() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'probe.jpg', {
+        type: 'image/jpeg',
+      });
+      return navigator.canShare({ files: [probe] });
+    } catch {
+      return false;
+    }
+  }
+
+  function describeSuccess(item) {
+    const parts = [];
+    if (item.width && item.height) parts.push(`${item.width} × ${item.height} px`);
+    if (item.processing_ms != null) parts.push(formatDuration(item.processing_ms));
+    return parts.join(' · ');
+  }
+
+  function updateResultsSummary() {
+    if (!els.resultsSummary) return;
+    const total = state.results.length;
+    const ok = state.results.filter((item) => item.ok).length;
+    const failed = total - ok;
+
+    if (!total) {
+      els.resultsSummary.textContent = '';
+      els.resultsNote.textContent = '';
+      return;
+    }
+
+    els.resultsSummary.textContent = failed
+      ? `${ok} de ${total} foto(s) com link de download · ${failed} com erro`
+      : `${ok} foto(s) com link de download`;
+
+    if (!ok) {
+      els.resultsNote.textContent = 'Nenhuma foto gerou link de download.';
+      return;
+    }
+
+    const ttl = state.ttlMinutes;
+    const expiry = `Os links expiram em ${ttl} minuto${ttl === 1 ? '' : 's'}.`;
+    els.resultsNote.textContent = state.canShare
+      ? `Toque em "Compartilhar" para abrir o Instagram no celular, escrever a legenda e publicar. ${expiry}`
+      : `Cada link baixa apenas a sua foto. ${expiry}`;
+  }
+
+  /* ------------------------------------------------------------------
+     Progresso do lote
+     ------------------------------------------------------------------ */
+  function showProgress(total) {
+    els.progressCard.hidden = false;
+    updateProgress(0, total);
+  }
+
+  function updateProgress(done, total) {
+    const percent = total ? Math.round((done / total) * 100) : 0;
+    els.progressFill.style.width = `${percent}%`;
+    els.progressBar.setAttribute('aria-valuenow', String(percent));
+    els.progressText.textContent =
+      done >= total ? 'Finalizando…' : `Processando ${done} de ${total} foto(s)…`;
+  }
+
+  function hideProgress() {
+    els.progressCard.hidden = true;
   }
 
   /* ------------------------------------------------------------------
      Micro-interações
      ------------------------------------------------------------------ */
-  const STEPS = [
-    'Enviando a foto para o servidor',
-    'Aplicando a logomarca no canto inferior esquerdo',
-    'Gerando a pré-visualização',
-  ];
-
-  function startStepAnimation() {
-    let index = 0;
-    els.processingStep.textContent = STEPS[0];
-    state.stepTimer = setInterval(() => {
-      index = Math.min(index + 1, STEPS.length - 1);
-      els.processingStep.textContent = STEPS[index];
-    }, 1800);
-  }
-
-  function stopStepAnimation() {
-    if (state.stepTimer) {
-      clearInterval(state.stepTimer);
-      state.stepTimer = null;
-    }
-  }
-
   function showToast(message, variant = 'info', duration = 6000) {
     const toast = document.createElement('div');
     toast.className = 'toast';

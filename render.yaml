@@ -16,6 +16,11 @@ services:
       # Plano Free tem 512 MB de RAM: limita fotos a 32 MP (~350 MB de pico).
       - key: MAX_IMAGE_PIXELS
         value: "32000000"
+      # Lote: até 20 fotos e 90 MB por requisição (abaixo do limite de payload do Render).
+      - key: MAX_BATCH_FILES
+        value: "20"
+      - key: MAX_BATCH_BYTES
+        value: "94371840"
       - key: FILE_TTL_SECONDS
         value: "3600"
       - key: CLEANUP_INTERVAL_SECONDS

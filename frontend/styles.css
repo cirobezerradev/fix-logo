@@ -76,26 +76,6 @@ body {
   animation: fade-in-up 0.35s ease-out both;
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: -400px 0;
-  }
-  100% {
-    background-position: 400px 0;
-  }
-}
-
-.shimmer {
-  background-image: linear-gradient(
-    90deg,
-    rgba(226, 232, 240, 0.6) 0%,
-    rgba(241, 245, 249, 0.95) 50%,
-    rgba(226, 232, 240, 0.6) 100%
-  );
-  background-size: 800px 100%;
-  animation: shimmer 1.4s linear infinite;
-}
-
 .spinner {
   width: 1.5rem;
   height: 1.5rem;
@@ -112,82 +92,28 @@ body {
   }
 }
 
-/* Comparador antes/depois ------------------------------------------- */
-#compare {
-  --position: 50%;
-}
-
-.compare-clip {
-  clip-path: inset(0 calc(100% - var(--position)) 0 0);
-  will-change: clip-path;
-}
-
-.compare-handle {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: var(--position);
-  z-index: 20;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.compare-handle__line {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.15);
-}
-
-.compare-handle__grip {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 9999px;
-  background: #fff;
-  color: #0f766e;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.25);
-}
-
-.compare-range {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
+/* Barra de progresso do lote ---------------------------------------- */
+.progress-track {
+  height: 0.5rem;
   width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: ew-resize;
-  touch-action: none;
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #e2e8f0;
 }
 
-.compare-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 44px;
+.progress-fill {
+  display: block;
   height: 100%;
+  width: 0;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, var(--brand-500), #10b981);
+  transition: width 0.35s ease;
 }
 
-.compare-range::-moz-range-thumb {
-  width: 44px;
-  height: 100%;
-  border: 0;
-  background: transparent;
-}
-
-.compare-range:focus-visible ~ .compare-handle .compare-handle__grip {
-  outline: 3px solid rgba(20, 184, 166, 0.6);
-  outline-offset: 2px;
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
 }
 
 /* Toast ------------------------------------------------------------- */

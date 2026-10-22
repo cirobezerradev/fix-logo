@@ -53,6 +53,8 @@ class Settings:
 
     # --- Limites de upload --------------------------------------------
     max_upload_bytes: int = field(default_factory=lambda: _env_int("MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
+    max_batch_files: int = field(default_factory=lambda: _env_int("MAX_BATCH_FILES", 20))
+    max_batch_bytes: int = field(default_factory=lambda: _env_int("MAX_BATCH_BYTES", 120 * 1024 * 1024))
     max_image_pixels: int = field(default_factory=lambda: _env_int("MAX_IMAGE_PIXELS", 60_000_000))
     allowed_formats: tuple[str, ...] = ("JPEG", "PNG")
     allowed_extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png")
@@ -72,8 +74,6 @@ class Settings:
     # --- Qualidade de saída -------------------------------------------
     jpeg_quality: int = field(default_factory=lambda: _env_int("JPEG_QUALITY", 92))
     png_compress_level: int = field(default_factory=lambda: _env_int("PNG_COMPRESS_LEVEL", 6))
-    preview_max_size: int = field(default_factory=lambda: _env_int("PREVIEW_MAX_SIZE", 1400))
-    preview_quality: int = field(default_factory=lambda: _env_int("PREVIEW_QUALITY", 82))
 
     # --- Limpeza automática -------------------------------------------
     file_ttl_seconds: int = field(default_factory=lambda: _env_int("FILE_TTL_SECONDS", 3600))
