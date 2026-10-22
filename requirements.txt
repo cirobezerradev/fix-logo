@@ -1,0 +1,3 @@
+# Dependências de produção (o Render instala a partir deste arquivo).
+# A lista fica em backend/requirements.txt para manter o fluxo local.
+-r backend/requirements.txt

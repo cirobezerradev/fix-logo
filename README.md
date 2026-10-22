@@ -78,6 +78,46 @@ download, validação de formato/tamanho, exclusão, limpeza por TTL e ausência
 
 ---
 
+## ☁️ Deploy no Render
+
+O projeto já inclui o `requirements.txt` na raiz (que aponta para as dependências do
+backend) e o blueprint `render.yaml`.
+
+### Opção 1 — Blueprint (recomendada)
+
+1. Suba o código para um repositório no GitHub/GitLab.
+2. No [Render Dashboard](https://dashboard.render.com), clique em **New +** → **Blueprint**.
+3. Selecione o repositório. O Render lê o `render.yaml` e cria o serviço web.
+4. Aguarde o build; a aplicação fica em `https://<nome-do-servico>.onrender.com`.
+
+### Opção 2 — Configuração manual
+
+Crie um **Web Service** com runtime **Python** e preencha:
+
+| Campo | Valor |
+| :--- | :--- |
+| Build Command | `pip install --upgrade pip && pip install -r requirements.txt` |
+| Start Command | `uvicorn backend.app:app --host 0.0.0.0 --port $PORT` |
+| Health Check Path | `/api/health` |
+| Variável de ambiente | `PYTHON_VERSION=3.13.7` (ajuste para uma versão disponível) |
+
+### Pontos de atenção
+
+- **Disco efêmero:** as fotos processadas ficam no disco do container e são perdidas a
+  cada deploy/restart. A limpeza por TTL continua funcionando. Para persistência,
+  adicione um **Render Disk** e aponte `STORAGE_DIR` para o ponto de montagem.
+- **Logo:** `backend/logo/logo_petshop.png` está versionado no repositório — para trocar,
+  faça commit da nova imagem. A pasta `backend/storage/` está no `.gitignore`.
+- **Plano Free:** o serviço hiberna após inatividade; a primeira requisição pode demorar
+  alguns segundos.
+- **Memória:** o plano Free tem 512 MB de RAM. Por isso o `render.yaml` define
+  `MAX_IMAGE_PIXELS=32000000` (32 MP) — fotos maiores são recusadas com mensagem clara,
+  em vez de derrubar o processo. Em planos maiores, aumente o valor (pico medido:
+  ~270 MB para uma foto de 24 MP).
+- **Frontend:** é servido pelo próprio FastAPI na rota `/`, sem build separado.
+
+---
+
 ## 🔌 API
 
 | Método | Rota | Descrição |
@@ -104,7 +144,7 @@ Resposta:
   "download_name": "foto-do-pet-logo.jpg",
   "width": 1800,
   "height": 1350,
-  "logo_width": 324,
+  "logo_width": 405,
   "preview_url": "/api/images/54158067df1c46338ba6b1e9fc6b7045/preview",
   "download_url": "/api/images/54158067df1c46338ba6b1e9fc6b7045/download",
   "expires_in_minutes": 60,

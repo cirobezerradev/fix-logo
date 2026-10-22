@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import os
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -166,6 +167,28 @@ def test_rejects_oversized_upload(tmp_path: Path):
             files={"file": ("big.jpg", make_photo(), "image/jpeg")},
         )
     assert response.status_code == 413
+
+
+def test_rejects_too_many_pixels(tmp_path: Path):
+    logo_path = tmp_path / "logo.png"
+    make_logo().save(logo_path)
+    # 800x600 = 480 mil pixels, acima do limite de 300 mil.
+    config = Settings(
+        logo_path=logo_path,
+        storage_dir=tmp_path / "storage",
+        max_image_pixels=300_000,
+        cleanup_interval_seconds=3600,
+    )
+    with TestClient(create_app(config)) as client:
+        with warnings.catch_warnings():
+            # O Pillow avisa antes do nosso limite; aqui o erro esperado é 400.
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            response = client.post(
+                "/api/process",
+                files={"file": ("grande.jpg", make_photo((800, 600)), "image/jpeg")},
+            )
+    assert response.status_code == 400
+    assert "megapixels" in response.json()["detail"].lower()
 
 
 def test_delete_and_expired_images(client: TestClient):

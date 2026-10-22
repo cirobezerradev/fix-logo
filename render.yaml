@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: fixlogo
+    runtime: python
+    plan: free
+    autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      # Render aceita qualquer patch disponível na lista de versões do runtime.
+      - key: PYTHON_VERSION
+        value: 3.13.7
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      # Plano Free tem 512 MB de RAM: limita fotos a 32 MP (~350 MB de pico).
+      - key: MAX_IMAGE_PIXELS
+        value: "32000000"
+      - key: FILE_TTL_SECONDS
+        value: "3600"
+      - key: CLEANUP_INTERVAL_SECONDS
+        value: "900"
+      - key: LOG_LEVEL
+        value: INFO

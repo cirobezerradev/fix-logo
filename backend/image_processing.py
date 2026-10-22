@@ -99,6 +99,12 @@ def load_uploaded_image(data: bytes, *, max_pixels: int) -> tuple[Image.Image, s
                 raise InvalidImageError(
                     "Formato não suportado. Envie imagens JPG, JPEG ou PNG."
                 )
+            # Checa antes de descomprimir: protege a memória do servidor.
+            if raw.width * raw.height > max_pixels:
+                raise InvalidImageError(
+                    f"A imagem tem {raw.width}×{raw.height} px, acima do limite de "
+                    f"{max_pixels / 1_000_000:.0f} megapixels. Reduza a foto e tente novamente."
+                )
             raw.load()
             image = ImageOps.exif_transpose(raw)
     except Image.DecompressionBombError as exc:  # type: ignore[attr-defined]
@@ -166,13 +172,19 @@ def apply_logo(
 
     resized_logo = _resize_logo(_scale_alpha(logo, config.logo_opacity), target_w, max_logo_h)
 
-    # Base RGBA garante composição correta com a transparência da logo.
-    base = image.convert("RGBA")
     position = (padding, height - padding - resized_logo.height)
-    base.alpha_composite(resized_logo, dest=position)
 
-    final_rgb = _flatten_on_white(base)
-    final_image = base if is_png else final_rgb
+    # JPEG não tem canal alpha: compor direto no RGB evita uma cópia RGBA
+    # inteira da foto, o que reduz bastante o pico de memória.
+    if is_png:
+        base = image.convert("RGBA")
+        base.alpha_composite(resized_logo, dest=position)
+        final_image = base
+        final_rgb = _flatten_on_white(base)
+    else:
+        final_rgb = image if image.mode == "RGB" else image.convert("RGB")
+        final_rgb.paste(resized_logo, position, resized_logo.getchannel("A"))
+        final_image = final_rgb
 
     out = io.BytesIO()
     if is_png:
@@ -182,11 +194,16 @@ def apply_logo(
         final_rgb.save(out, format="JPEG", quality=config.jpeg_quality, progressive=True)
         extension, media_type = ".jpg", "image/jpeg"
 
-    preview = final_rgb.copy()
-    preview.thumbnail(
-        (config.preview_max_size, config.preview_max_size),
-        Image.Resampling.LANCZOS,
-    )
+    # Redimensiona direto para a prévia (sem copiar a imagem inteira).
+    preview = final_rgb
+    longest_side = max(final_rgb.size)
+    if longest_side > config.preview_max_size:
+        scale = config.preview_max_size / longest_side
+        preview = final_rgb.resize(
+            (max(1, round(width * scale)), max(1, round(height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+
     preview_out = io.BytesIO()
     preview.save(preview_out, format="JPEG", quality=config.preview_quality, progressive=True)
 
