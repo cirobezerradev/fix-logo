@@ -1,0 +1,1 @@
+"""FixLogo - backend package."""

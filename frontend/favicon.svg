@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b120c" />
+      <stop offset="1" stop-color="#170704" />
+    </linearGradient>
+  </defs>
+
+  <!-- Fundo marrom da marca -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)" />
+
+  <!-- Pelagem fofa da poodle -->
+  <g fill="#ffffff">
+    <circle cx="32" cy="35" r="15" />
+    <circle cx="20" cy="26" r="7.5" />
+    <circle cx="32" cy="21.5" r="7.5" />
+    <circle cx="44" cy="26" r="7.5" />
+    <circle cx="17.5" cy="38" r="7" />
+    <circle cx="46.5" cy="38" r="7" />
+    <circle cx="22" cy="47" r="6.5" />
+    <circle cx="42" cy="47" r="6.5" />
+    <circle cx="32" cy="48.5" r="7" />
+  </g>
+
+  <!-- Língua -->
+  <ellipse cx="32" cy="44.6" rx="2.5" ry="2.3" fill="#f28b98" />
+
+  <!-- Olhos -->
+  <g fill="#1a0906">
+    <circle cx="26.5" cy="33.4" r="2.3" />
+    <circle cx="37.5" cy="33.4" r="2.3" />
+  </g>
+  <g fill="#ffffff">
+    <circle cx="27.2" cy="32.7" r="0.7" />
+    <circle cx="38.2" cy="32.7" r="0.7" />
+  </g>
+
+  <!-- Focinho -->
+  <ellipse cx="32" cy="39" rx="2.7" ry="2" fill="#2a1512" />
+  <path d="M32 41v1.5M29.7 43.4q2.3 1.7 4.6 0" fill="none" stroke="#2a1512" stroke-width="1.1" stroke-linecap="round" />
+
+  <!-- Laços amarelos -->
+  <g fill="#f8d22a">
+    <ellipse cx="15.2" cy="20.8" rx="3.9" ry="2.5" transform="rotate(-32 15.2 20.8)" />
+    <ellipse cx="21.8" cy="20.8" rx="3.9" ry="2.5" transform="rotate(32 21.8 20.8)" />
+    <circle cx="18.5" cy="21.5" r="1.7" />
+    <ellipse cx="42.2" cy="20.8" rx="3.9" ry="2.5" transform="rotate(32 42.2 20.8)" />
+    <ellipse cx="48.8" cy="20.8" rx="3.9" ry="2.5" transform="rotate(-32 48.8 20.8)" />
+    <circle cx="45.5" cy="21.5" r="1.7" />
+  </g>
+</svg>

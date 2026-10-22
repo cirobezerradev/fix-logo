@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FixLogo · Logo automática nas fotos dos pets</title>
+  <meta name="description" content="Envie a foto do pet e baixe a versão com a logomarca do petshop aplicada automaticamente." />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdfa',
+              100: '#ccfbf1',
+              200: '#99f6e4',
+              300: '#5eead4',
+              400: '#2dd4bf',
+              500: '#14b8a6',
+              600: '#0d9488',
+              700: '#0f766e',
+            },
+          },
+          boxShadow: {
+            soft: '0 18px 40px -24px rgba(15, 23, 42, 0.35)',
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased">
+  <a href="#main" class="skip-link">Ir para o conteúdo</a>
+
+  <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+    <div class="absolute -top-40 left-1/2 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-brand-200/40 blur-3xl"></div>
+    <div class="absolute bottom-0 right-0 h-[26rem] w-[26rem] translate-x-1/3 translate-y-1/3 rounded-full bg-emerald-200/40 blur-3xl"></div>
+  </div>
+
+  <header class="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 pt-8 sm:px-6">
+    <div class="flex items-center gap-3">
+      <span class="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-emerald-500 text-white shadow-lg shadow-brand-500/25">
+        <svg viewBox="0 0 24 24" fill="currentColor" class="h-8 w-8" aria-hidden="true">
+          <g transform="rotate(35 12 12)">
+            <circle cx="12" cy="6" r="3.2" />
+            <path d="M9.9 8.4h4.2l1.6 4.6H8.3l1.6-4.6Z" />
+            <rect x="7.7" y="13" width="8.6" height="1.8" rx="0.9" />
+            <path d="M11.2 14.8h1.6L12 22.2l-.8-7.4Z" />
+          </g>
+        </svg>
+      </span>
+      <div>
+        <p class="text-base font-semibold tracking-tight">FixLogo</p>
+        <p class="text-xs text-slate-500">Sua logomarca em todas as fotos, sem edição manual</p>
+      </div>
+    </div>
+
+    <div id="apiStatus" class="hidden items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-slate-600 backdrop-blur sm:flex">
+      <span data-status-dot class="h-2 w-2 rounded-full bg-amber-400"></span>
+      <span data-status-text>Verificando servidor…</span>
+    </div>
+  </header>
+
+  <main id="main" class="mx-auto w-full max-w-5xl px-4 pb-16 pt-8 sm:px-6">
+    <div class="mb-7 text-center sm:mb-10">
+      <h1 class="text-balance text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+        Fotos prontas para o Instagram
+        <span class="bg-gradient-to-r from-brand-600 to-emerald-500 bg-clip-text text-transparent">em segundos</span>
+      </h1>
+      <p class="mx-auto mt-3 max-w-xl text-sm text-slate-600 sm:text-base">
+        Envie a foto do pet. Nós aplicamos a logomarca do petshop no canto inferior esquerdo,
+        com escala e margem automáticas — você só baixa e publica.
+      </p>
+    </div>
+
+    <div id="logoWarning" class="mx-auto mb-6 hidden max-w-2xl rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert">
+      <strong class="font-semibold">Logomarca não encontrada.</strong>
+      Adicione o arquivo <code class="rounded bg-amber-100 px-1.5 py-0.5 text-xs">backend/logo/logo_petshop.png</code> e recarregue a página.
+    </div>
+
+    <!-- Etapa 1: upload -->
+    <section id="uploadCard" class="animate-fade-in rounded-3xl border border-white/70 bg-white/70 p-4 shadow-soft backdrop-blur sm:p-6" aria-labelledby="uploadTitle">
+      <div
+        id="dropzone"
+        role="button"
+        tabindex="0"
+        aria-labelledby="uploadTitle"
+        aria-describedby="uploadHint"
+        class="group relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-slate-200 bg-white/60 px-5 py-10 text-center transition focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-200 sm:py-14"
+      >
+        <input id="fileInput" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" class="sr-only" />
+        <span class="dropzone-icon grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 transition group-hover:scale-105 group-hover:bg-brand-100">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-7 w-7" aria-hidden="true">
+            <path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" />
+          </svg>
+        </span>
+        <div>
+          <h2 id="uploadTitle" class="text-lg font-semibold text-slate-900">Arraste a foto do pet aqui</h2>
+          <p id="uploadHint" class="mt-1 text-sm text-slate-500">
+            ou <span class="font-medium text-brand-600 underline decoration-brand-300 underline-offset-2">clique para escolher</span>
+            · JPG ou PNG até <span id="maxSizeLabel">25 MB</span>
+          </p>
+        </div>
+        <p class="text-xs text-slate-400">Dica: você também pode colar uma imagem com <kbd class="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-sans text-[11px] text-slate-500">Ctrl</kbd> + <kbd class="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-sans text-[11px] text-slate-500">V</kbd></p>
+      </div>
+
+      <ul class="mt-5 grid gap-3 text-xs text-slate-600 sm:grid-cols-3">
+        <li class="flex items-start gap-2 rounded-2xl bg-slate-50/80 px-3 py-3">
+          <span class="mt-0.5 text-brand-600" aria-hidden="true">◉</span>
+          <span><strong class="block text-slate-800">Posição fixa</strong>Canto inferior esquerdo</span>
+        </li>
+        <li class="flex items-start gap-2 rounded-2xl bg-slate-50/80 px-3 py-3">
+          <span class="mt-0.5 text-brand-600" aria-hidden="true">⇱</span>
+          <span><strong class="block text-slate-800">Escala automática</strong>Proporcional a cada foto</span>
+        </li>
+        <li class="flex items-start gap-2 rounded-2xl bg-slate-50/80 px-3 py-3">
+          <span class="mt-0.5 text-brand-600" aria-hidden="true">↓</span>
+          <span><strong class="block text-slate-800">Alta qualidade</strong>Pronta para publicar</span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- Etapa 2: processamento -->
+    <section id="processingCard" hidden class="rounded-3xl border border-white/70 bg-white/80 p-5 shadow-soft backdrop-blur sm:p-7" aria-live="polite">
+      <div class="flex items-center gap-3">
+        <span class="spinner" aria-hidden="true"></span>
+        <div>
+          <h2 class="text-base font-semibold text-slate-900">Aplicando a logomarca…</h2>
+          <p id="processingStep" class="text-sm text-slate-500">Enviando a foto para o servidor</p>
+        </div>
+      </div>
+      <div class="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
+        <div class="shimmer h-56 rounded-2xl bg-slate-100 sm:h-72"></div>
+        <div class="hidden flex-col justify-center gap-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500 sm:flex">
+          <p class="font-medium text-slate-700" id="processingFileName">foto.jpg</p>
+          <p>Estamos posicionando a logo e gerando a pré-visualização. Isso costuma levar menos de 2 segundos.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Etapa 3: resultado -->
+    <section id="resultCard" hidden class="rounded-3xl border border-white/70 bg-white/80 p-4 shadow-soft backdrop-blur sm:p-6" aria-labelledby="resultTitle">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 id="resultTitle" class="flex items-center gap-2 text-lg font-semibold text-slate-900">
+            <span class="grid h-6 w-6 place-items-center rounded-full bg-emerald-100 text-emerald-600" aria-hidden="true">✓</span>
+            Pronto para publicar
+          </h2>
+          <p id="resultMeta" class="mt-1 text-xs text-slate-500"></p>
+        </div>
+        <span id="resultBadge" class="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">Logomarca aplicada</span>
+      </div>
+
+      <div id="compareWrap" class="relative mt-4 overflow-hidden rounded-2xl bg-[radial-gradient(circle_at_1px_1px,rgba(148,163,184,.35)_1px,transparent_0)] [background-size:16px_16px]">
+        <div id="compare" class="relative w-full touch-none select-none" style="aspect-ratio: 4 / 3;">
+          <img id="imgBefore" class="absolute inset-0 h-full w-full object-contain" alt="Foto original sem logomarca" />
+          <img id="imgAfter" class="compare-clip absolute inset-0 h-full w-full object-contain" alt="Foto processada com a logomarca do petshop" />
+          <div id="compareHandle" class="compare-handle" aria-hidden="true">
+            <span class="compare-handle__line"></span>
+            <span class="compare-handle__grip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+                <path d="m9 6-4 6 4 6" /><path d="m15 6 4 6-4 6" />
+              </svg>
+            </span>
+          </div>
+          <span class="pointer-events-none absolute left-3 top-3 rounded-full bg-brand-600/90 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">Com logo</span>
+          <span class="pointer-events-none absolute right-3 top-3 rounded-full bg-slate-900/70 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">Antes</span>
+          <input id="compareRange" type="range" min="0" max="100" value="50" step="1"
+                 class="compare-range" aria-label="Arraste para comparar a foto original com a foto com logomarca" />
+        </div>
+      </div>
+      <p class="mt-2 text-center text-xs text-slate-400">Arraste a linha para comparar o antes e o depois</p>
+
+      <div class="mt-5 flex flex-col gap-3 sm:flex-row">
+        <a id="downloadBtn" href="#" download
+           class="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-brand-600 to-emerald-500 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:from-brand-700 hover:to-emerald-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-200 active:scale-[0.99]">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
+            <path d="M12 4v12" /><path d="m7 11 5 5 5-5" /><path d="M5 20h14" />
+          </svg>
+          <span id="downloadLabel">Baixar imagem</span>
+        </a>
+        <button id="resetBtn" type="button"
+                class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" />
+          </svg>
+          Enviar outra foto
+        </button>
+      </div>
+      <p id="resultExpiry" class="mt-3 text-center text-xs text-slate-400"></p>
+    </section>
+
+    <noscript>
+      <p class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        Ative o JavaScript no navegador para usar o envio de fotos.
+      </p>
+    </noscript>
+  </main>
+
+  <footer class="mx-auto w-full max-w-5xl px-4 pb-10 text-center text-xs text-slate-400 sm:px-6">
+    As fotos são armazenadas temporariamente no servidor e removidas automaticamente.
+  </footer>
+
+  <div id="toast" class="pointer-events-none fixed inset-x-4 bottom-6 z-50 flex justify-center sm:inset-x-auto sm:right-6 sm:justify-end" role="status" aria-live="polite"></div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
