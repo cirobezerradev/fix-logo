@@ -15,9 +15,34 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .config import Settings, settings as default_settings
 
+# Suporte a HEIC/HEIF (fotos padrão do iPhone) e AVIF. Se a dependência
+# opcional não estiver instalada, a aplicação continua funcionando apenas
+# com JPG/PNG.
+try:
+    from pillow_heif import register_heif_opener  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - depende do ambiente
+    register_heif_opener = None  # type: ignore[assignment]
+
+if register_heif_opener is not None:  # pragma: no cover - efeito colateral de import
+    register_heif_opener()
+
+# Formatos que o Pillow pode identificar e como devem ser gravados na saída.
+# MPO é um JPEG com múltiplas imagens (HDR/Retrato do iPhone) e HEIC/HEIF é
+# o formato padrão da câmera do iPhone.
+SOURCE_FORMATS = {
+    "JPEG": "JPEG",
+    "MPO": "JPEG",
+    "PNG": "PNG",
+    "HEIF": "JPEG",
+    "HEIC": "JPEG",
+    "AVIF": "JPEG",
+}
+
+UNSUPPORTED_FORMAT_MESSAGE = "Formato não suportado. Envie imagens JPG, JPEG, PNG ou HEIC."
+
 
 class InvalidImageError(ValueError):
-    """Arquivo enviado não é uma imagem JPG/PNG válida."""
+    """Arquivo enviado não é uma imagem suportada (JPG, PNG, HEIC, MPO)."""
 
 
 class LogoError(RuntimeError):
@@ -76,7 +101,8 @@ class LogoCache:
 def load_uploaded_image(data: bytes, *, max_pixels: int) -> tuple[Image.Image, str]:
     """Abre os bytes enviados, valida o formato e corrige a orientação EXIF.
 
-    Devolve a imagem já normalizada e o formato original ("JPEG" ou "PNG").
+    Devolve a imagem já normalizada e o formato de saída ("JPEG" ou "PNG").
+    Fotos HEIC/HEIF (iPhone) e MPO (HDR/Retrato) são convertidas para JPEG.
     """
 
     if not data:
@@ -84,11 +110,10 @@ def load_uploaded_image(data: bytes, *, max_pixels: int) -> tuple[Image.Image, s
 
     try:
         with Image.open(io.BytesIO(data)) as raw:
-            source_format = raw.format or ""
-            if source_format not in {"JPEG", "PNG"}:
-                raise InvalidImageError(
-                    "Formato não suportado. Envie imagens JPG, JPEG ou PNG."
-                )
+            raw_format = (raw.format or "").upper()
+            output_format = SOURCE_FORMATS.get(raw_format)
+            if output_format is None:
+                raise InvalidImageError(UNSUPPORTED_FORMAT_MESSAGE)
             # Checa antes de descomprimir: protege a memória do servidor.
             if raw.width * raw.height > max_pixels:
                 raise InvalidImageError(
@@ -103,13 +128,16 @@ def load_uploaded_image(data: bytes, *, max_pixels: int) -> tuple[Image.Image, s
             f"{max_pixels / 1_000_000:.0f} megapixels."
         ) from exc
     except UnidentifiedImageError as exc:
-        raise InvalidImageError("O arquivo não é uma imagem válida.") from exc
+        raise InvalidImageError(
+            "Não foi possível ler a imagem. Se for uma foto do iPhone no formato HEIC, "
+            "instale o suporte a HEIC no servidor (pillow-heif) ou converta para JPEG."
+        ) from exc
     except OSError as exc:
         raise InvalidImageError("Não foi possível abrir a imagem enviada.") from exc
 
     if image.width < 16 or image.height < 16:
         raise InvalidImageError("A imagem é pequena demais para receber a logomarca.")
-    return image, source_format
+    return image, output_format
 
 
 def _scale_alpha(logo: Image.Image, opacity: float) -> Image.Image:

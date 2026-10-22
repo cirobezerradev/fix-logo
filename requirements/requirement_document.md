@@ -33,7 +33,7 @@
 
 | ID | Requisito | Descrição | Prioridade |
 | :--- | :--- | :--- | :--- |
-| **RF01** | Upload de Imagem | O sistema deve permitir o upload de uma ou várias imagens nos formatos JPG, JPEG e PNG via interface Web. | Alta |
+| **RF01** | Upload de Imagem | O sistema deve permitir o upload de uma ou várias imagens nos formatos JPG, JPEG, PNG, HEIC/HEIF e MPO (fotos de iPhone), via interface Web. | Alta |
 | **RF02** | Processamento de Imagem | O backend deve ler a logo fixa da pasta `logo/` e aplicá-la com transparência/proporção adequada no canto inferior esquerdo da foto. | Alta |
 | **RF03** | Resultado sem Prévia | A aplicação não deve exibir a pré-visualização da imagem final; deve listar apenas o nome do arquivo, o status do processamento e o link de download. | Média |
 | **RF04** | Download do Resultado | O usuário deve conseguir baixar a imagem pronta em formato adequado para o Instagram (ex: JPG/PNG). | Alta |
@@ -61,6 +61,7 @@
   * Uso da Web Share API nível 2 (`navigator.share` com `files`), sempre disparada por um gesto do usuário e em contexto seguro (HTTPS).
   * O site entrega a imagem processada ao menu nativo do sistema; o usuário escolhe o Instagram, escreve a legenda e publica no feed pelo próprio app.
   * O download individual permanece disponível como alternativa e como **fallback** em navegadores/dispositivos sem suporte a compartilhamento de arquivos.
+* **Compatibilidade com fotos de iPhone:** arquivos **HEIC/HEIF** (padrão da câmera do iPhone) e **MPO** (fotos de Retrato/HDR) devem ser aceitos e normalizados para JPEG antes da aplicação da logomarca.
 * **Armazenamento de Assets:** A logo será mantida no diretório backend `/logo/logo_petshop.png` (com suporte a canal Alpha/transparência).
 
 ---

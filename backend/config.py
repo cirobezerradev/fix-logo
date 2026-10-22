@@ -56,8 +56,8 @@ class Settings:
     max_batch_files: int = field(default_factory=lambda: _env_int("MAX_BATCH_FILES", 20))
     max_batch_bytes: int = field(default_factory=lambda: _env_int("MAX_BATCH_BYTES", 120 * 1024 * 1024))
     max_image_pixels: int = field(default_factory=lambda: _env_int("MAX_IMAGE_PIXELS", 60_000_000))
-    allowed_formats: tuple[str, ...] = ("JPEG", "PNG")
-    allowed_extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png")
+    allowed_formats: tuple[str, ...] = ("JPEG", "MPO", "PNG", "HEIF", "AVIF")
+    allowed_extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".heic", ".heif")
 
     # --- Regra de sobreposição da logo --------------------------------
     # Largura da logo como fração da largura da foto (22,5% por padrão).

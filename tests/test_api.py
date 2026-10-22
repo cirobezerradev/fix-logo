@@ -40,6 +40,31 @@ def make_photo(size: tuple[int, int] = (1600, 1200), fmt: str = "JPEG", mode: st
     return buffer.getvalue()
 
 
+def make_mpo(size: tuple[int, int] = (1200, 900)) -> bytes:
+    """MPO = JPEG com múltiplas imagens (HDR/Retrato do iPhone)."""
+    first = Image.new("RGB", size, (90, 140, 200))
+    second = Image.new("RGB", size, (200, 100, 80))
+    buffer = io.BytesIO()
+    first.save(buffer, format="MPO", save_all=True, append_images=[second])
+    return buffer.getvalue()
+
+
+def make_heic(size: tuple[int, int] = (1200, 900)) -> bytes | None:
+    """HEIC/HEIF — formato padrão da câmera do iPhone."""
+    try:
+        from pillow_heif import register_heif_opener
+    except ImportError:
+        return None
+
+    register_heif_opener()
+    buffer = io.BytesIO()
+    try:
+        Image.new("RGB", size, (90, 140, 200)).save(buffer, format="HEIF", quality=85)
+    except Exception:
+        return None
+    return buffer.getvalue()
+
+
 def upload_part(name: str, data: bytes, content_type: str = "image/jpeg") -> tuple[str, tuple[str, bytes, str]]:
     return ("files", (name, data, content_type))
 
@@ -73,7 +98,7 @@ def test_health_and_config(client: TestClient, settings: Settings):
     assert health.json()["logo_available"] is True
 
     config = client.get("/api/config").json()
-    assert config["accepted_formats"] == ["image/jpeg", "image/png"]
+    assert config["accepted_formats"] == ["image/jpeg", "image/png", "image/heic"]
     assert config["logo"]["available"] is True
     assert config["rules"]["position"] == "bottom-left"
     assert config["max_batch_files"] == settings.max_batch_files
@@ -140,6 +165,59 @@ def test_png_keeps_png_format(client: TestClient):
     download = client.get(item["download_url"])
     assert download.headers["content-type"] == "image/png"
     assert Image.open(io.BytesIO(download.content)).format == "PNG"
+
+
+def test_accepts_iphone_mpo_jpeg(client: TestClient):
+    # Fotos de Retrato/HDR do iPhone podem chegar como JPEG/MPO.
+    response = client.post(
+        "/api/process",
+        files=[upload_part("IMG_3734.jpeg", make_mpo(), "image/jpeg")],
+    )
+    assert response.status_code == 200, response.text
+
+    item = response.json()["items"][0]
+    assert item["ok"] is True, item
+    assert item["media_type"] == "image/jpeg"
+    assert item["download_name"] == "IMG_3734-logo.jpg"
+    assert (item["width"], item["height"]) == (1200, 900)
+
+    download = client.get(item["download_url"])
+    assert download.status_code == 200
+    assert Image.open(io.BytesIO(download.content)).format == "JPEG"
+
+
+def test_accepts_iphone_heic(client: TestClient):
+    heic = make_heic()
+    if heic is None:
+        pytest.skip("pillow-heif indisponível para gerar/ler HEIC neste ambiente")
+
+    response = client.post(
+        "/api/process",
+        files=[upload_part("IMG_0001.HEIC", heic, "image/heic")],
+    )
+    assert response.status_code == 200, response.text
+
+    item = response.json()["items"][0]
+    assert item["ok"] is True, item
+    # HEIC é convertido para JPEG na saída.
+    assert item["media_type"] == "image/jpeg"
+    assert item["download_name"] == "IMG_0001-logo.jpg"
+    assert (item["width"], item["height"]) == (1200, 900)
+
+    download = client.get(item["download_url"])
+    assert download.status_code == 200
+    assert download.headers["content-type"] == "image/jpeg"
+    assert Image.open(io.BytesIO(download.content)).format == "JPEG"
+
+
+def test_accepts_nonstandard_jpg_mime(client: TestClient):
+    response = client.post(
+        "/api/process",
+        files=[upload_part("alias.jpg", make_photo((800, 600)), "image/jpg")],
+    )
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["ok"] is True, item
 
 
 def test_batch_returns_one_download_link_per_photo(client: TestClient):

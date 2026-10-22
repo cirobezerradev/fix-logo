@@ -8,7 +8,14 @@
 (() => {
   'use strict';
 
-  const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png']);
+  const ACCEPTED_TYPES = new Set([
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/heic',
+    'image/heif',
+  ]);
+  const ACCEPTED_NAME = /\.(jpe?g|png|heic|heif)$/i;
   const DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
   const MAX_CHUNK = 10;
   const REQUEST_TIMEOUT_MS = 180_000;
@@ -196,12 +203,12 @@
 
     const accepted = [];
     for (const file of files) {
-      const typeOk = ACCEPTED_TYPES.has(file.type) || /\.(jpe?g|png)$/i.test(file.name);
+      const typeOk = ACCEPTED_TYPES.has(file.type) || ACCEPTED_NAME.test(file.name);
       if (!typeOk) {
         addResult({
           ok: false,
           original_name: file.name,
-          error: 'Formato não suportado. Envie imagens JPG, JPEG ou PNG.',
+          error: 'Formato não suportado. Envie imagens JPG, JPEG, PNG ou HEIC.',
         });
         continue;
       }

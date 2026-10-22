@@ -98,7 +98,7 @@
         aria-describedby="uploadHint"
         class="group relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-slate-200 bg-white/60 px-5 py-10 text-center transition focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-200 sm:py-14"
       >
-        <input id="fileInput" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple class="sr-only" />
+        <input id="fileInput" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.jpg,.jpeg,.png,.heic,.heif" multiple class="sr-only" />
         <span class="dropzone-icon grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 transition group-hover:scale-105 group-hover:bg-brand-100">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-7 w-7" aria-hidden="true">
             <path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" />
@@ -108,7 +108,7 @@
           <h2 id="uploadTitle" class="text-lg font-semibold text-slate-900">Arraste as fotos do pet aqui</h2>
           <p id="uploadHint" class="mt-1 text-sm text-slate-500">
             ou <span class="font-medium text-brand-600 underline decoration-brand-300 underline-offset-2">clique para escolher</span>
-            · JPG ou PNG até <span id="maxSizeLabel">25 MB</span> cada
+            · JPG, PNG ou HEIC até <span id="maxSizeLabel">25 MB</span> cada
           </p>
           <p class="mt-1 text-xs text-slate-400">Envie quantas fotos quiser — todas recebem um link de download individual.</p>
         </div>

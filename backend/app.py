@@ -38,7 +38,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("petshop.watermark")
 
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/octet-stream"}
+ALLOWED_CONTENT_TYPES = {
+    # JPEG e variações não padronizadas enviadas por alguns navegadores.
+    "image/jpeg",
+    "image/jpg",
+    "image/pjpeg",
+    "image/png",
+    # HEIC/HEIF — formato padrão da câmera do iPhone.
+    "image/heic",
+    "image/heif",
+    "image/heic-sequence",
+    "image/heif-sequence",
+    # Alguns navegadores/dispositivos não informam o tipo.
+    "application/octet-stream",
+}
+
+UNSUPPORTED_FORMAT_MESSAGE = "Formato não suportado. Envie imagens JPG, JPEG, PNG ou HEIC."
 
 
 async def _cleanup_loop(storage: ImageStorage, config: Settings) -> None:
@@ -180,7 +195,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
             "max_upload_mb": config.max_upload_mb,
             "max_batch_files": config.max_batch_files,
             "max_batch_mb": round(config.max_batch_bytes / (1024 * 1024), 1),
-            "accepted_formats": ["image/jpeg", "image/png"],
+            "accepted_formats": ["image/jpeg", "image/png", "image/heic"],
             "accepted_extensions": list(config.allowed_extensions),
             "logo": logo_info,
             "rules": {
@@ -308,14 +323,14 @@ async def _process_one(
         if suffix and suffix not in config.allowed_extensions:
             raise HTTPException(
                 status_code=415,
-                detail="Formato não suportado. Envie imagens JPG, JPEG ou PNG.",
+                detail=UNSUPPORTED_FORMAT_MESSAGE,
             )
 
         content_type = (upload.content_type or "").lower()
         if content_type and content_type not in ALLOWED_CONTENT_TYPES:
             raise HTTPException(
                 status_code=415,
-                detail="Formato não suportado. Envie imagens JPG, JPEG ou PNG.",
+                detail=UNSUPPORTED_FORMAT_MESSAGE,
             )
 
         data = await _read_limited(upload, config.max_upload_bytes)

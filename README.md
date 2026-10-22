@@ -9,6 +9,8 @@ esquerdo** das fotos dos pets, pronta para publicação no Instagram.
 - **Compartilhar no Instagram (mobile):** botão que abre o menu nativo do sistema
   (Web Share API) para publicar direto no app, escrevendo a legenda lá dentro.
 - **Sem pré-visualização:** a tela mostra apenas nome, status e link de cada foto.
+- **Fotos de iPhone:** aceita **HEIC/HEIF** (convertidas para JPEG) e **MPO**
+  (Retrato/HDR), além de JPG, JPEG e PNG.
 - **Frontend:** HTML5 + Tailwind CSS + JavaScript (Fetch API), responsivo.
 - **Backend:** Python + FastAPI + Pillow.
 - **Sem login**, sem banco de dados: as fotos processadas ficam em disco apenas por
@@ -134,7 +136,7 @@ Crie um **Web Service** com runtime **Python** e preencha:
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Status do servidor e disponibilidade da logo |
 | `GET` | `/api/config` | Limites de upload/lote e regras de sobreposição |
-| `POST` | `/api/process` | Recebe `multipart/form-data` com o campo repetido `files` (1..N JPG/PNG) |
+| `POST` | `/api/process` | Recebe `multipart/form-data` com o campo repetido `files` (1..N JPG/PNG/HEIC) |
 | `GET` | `/api/images/{id}/download` | Imagem final com `Content-Disposition: attachment` |
 | `DELETE` | `/api/images/{id}` | Remove a imagem do storage imediatamente |
 | `GET` | `/docs` | Documentação interativa (Swagger UI) |
@@ -224,7 +226,8 @@ LOGO_WIDTH_RATIO=0.22 FILE_TTL_SECONDS=1800 uvicorn backend.app:app --port 8000
 3. A margem é **2,5% do menor lado da imagem** (mínimo de 12 px).
 4. A composição usa o canal alpha do PNG, no canto **inferior esquerdo**.
 5. A saída mantém o formato de origem: **JPEG** (qualidade 92, progressivo) ou
-   **PNG** (se a origem for PNG). Metadados/EXIF não são repassados.
+   **PNG** (se a origem for PNG). **HEIC/HEIF e MPO são convertidos para JPEG.**
+   Metadados/EXIF não são repassados.
 
 ---
 
